@@ -36,6 +36,8 @@ rel_iaq_handle_t algo_handle;
 rel_iaq_results_t algo_results;
 rel_iaq_inputs_t algo_input;
 
+uint32_t loop_counter;
+
 
 void setup()
 {
@@ -213,33 +215,40 @@ void loop()
     if ((lib_ret != REL_IAQ_OK) && (lib_ret != REL_IAQ_STABILIZATION)) {
         Serial.println(F("Error when calculating algorithm, exiting program!"));
     } else {
-        Serial.println(F("*********** Measurements ***********"));
+//        Serial.println(F("*********** Measurements ***********"));
+        Serial.print(++loop_counter);
+        Serial.printf(F(", "));
         for (int i = 0; i < 13; i++) {
-            Serial.print(F(" Rmox["));
-            Serial.print(i);
-            Serial.print(F("] = "));
+//            Serial.print(F(" Rmox["));
+//            Serial.print(i);
+//            Serial.print(F("] = "));
             Serial.print(algo_results.rmox[i] / 1e3);
-            Serial.println(F(" kOhm"));
+            Serial.print(F(", "));
         }
-        Serial.print(F(" Rel IAQ  = "));
-        Serial.println(algo_results.rel_iaq);
+//        Serial.print(F(" Rel IAQ  = "));
+        Serial.print(algo_results.rel_iaq);
+        Serial.print(F(", "));
         switch (lib_ret) {
         case REL_IAQ_STABILIZATION:
-            Serial.println(F("Warm-Up!"));
+            Serial.println(0); // Warm-Up!
             break;
         case REL_IAQ_DAMAGE:
-            Serial.println(F("Error: Sensor probably damaged. Algorithm results may be incorrect."));
+            Serial.println(-1); //Error: Sensor probably damaged. Algorithm results may be incorrect.
             break;
         case REL_IAQ_OK:
-            Serial.println(F("Valid!"));
+            Serial.println(1); // Valid!
             break;
         default: /* other errors */
-            Serial.println(F("Unexpected Error during algorithm calculation: Exiting Program."));
+            Serial.println(-2);// Unexpected Error during algorithm calculation: Exiting Program.
             error_handle();
         }
 
     }
-   dev.delay_ms(10000-ZMOD4410_REL_IAQ_SAMPLE_TIME);
+   if (lib_ret == REL_IAQ_STABILIZATION) {
+     dev.delay_ms(1000);
+   } else {
+     dev.delay_ms(10000-ZMOD4410_REL_IAQ_SAMPLE_TIME);
+   }
 
 }
 
