@@ -20,8 +20,10 @@
 
 void error_handle();
 
-#define __ZMOD__ 0
+int readSVM30_J_RHT(float *temperature, float *humidity);
 
+#define __ZMOD__ 1
+#define __SHTC1_IN_ZMOD__ 1
 
 //====== ZMOD4410 module =============
 #include <zmod4410_config_rel_iaq.h>
@@ -171,6 +173,7 @@ void ZMOD_loop()
 {
     int8_t lib_ret;
     zmod4xxx_err api_ret;
+    float temperature = 0, humidity = 0;
     
     /* Start a ZMOD4410 measurement. */
     api_ret = zmod4xxx_start_measurement(&dev);
@@ -250,7 +253,14 @@ void ZMOD_loop()
         Serial.println(F("Error when calculating algorithm, exiting program!"));
     } else {
 //        Serial.println(F("*********** Measurements ***********"));
+#if __SHTC1_IN_ZMOD__ == 1
+    readSVM30_J_RHT(&temperature, &humidity);
+#endif
         Serial.print(++loop_counter);
+        Serial.printf(F(", "));
+        Serial.print(temperature);
+        Serial.printf(F(", "));
+        Serial.print(humidity - 20);
         Serial.printf(F(", "));
         for (int i = 0; i < 13; i++) {
 //            Serial.print(F(" Rmox["));
@@ -348,6 +358,7 @@ void setup()
 
 #if __ZMOD__ == 1  
   ZMOD_setup();
+  Serial.println("line,temp,humid,Rmox0,Rmox1,Rmox2,Rmox3,Rmox4,Rmox5,Rmox6,Rmox7,Rmox8,Rmox9,Rmox10,Rmox11,Rmox12,RelIAQ");
 #else
   SHTC1_init();
 #endif
