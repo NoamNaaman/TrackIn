@@ -15,15 +15,20 @@
  * @author Renesas Electronics Corporation
  */
 
+#include "wire.h"
+#include "sys_defs.h"
 
+void error_handle();
+
+#define __ZMOD__ 0
+
+
+//====== ZMOD4410 module =============
 #include <zmod4410_config_rel_iaq.h>
 #include <zmod4xxx.h>
 #include <zmod4xxx_hal.h>
 #include <rel_iaq.h>
 //#include <hal_arduino.h>
-
-
-void error_handle();
 
 zmod4xxx_dev_t dev;
 
@@ -36,15 +41,44 @@ rel_iaq_handle_t algo_handle;
 rel_iaq_results_t algo_results;
 rel_iaq_inputs_t algo_input;
 
+
+//====== SVM30 module ==============
+
+// SVM30-J I2C address
+#define SVM30_J_ADDR 0x44
+
+// SVM30-J command codes
+#define SVM30_J_RHT_CMD_MSB 0x2C
+#define SVM30_J_RHT_CMD_LSB 0x06
+
+// SHTC1 I2C address
+#define SHTC1_ADDR 0x70
+
+// SHTC1 command codes
+#define SHTC1_RHT_CMD_MSB 0x5C
+#define SHTC1_RHT_CMD_LSB 0x24
+
+
+
+//======================================================================
 uint32_t loop_counter;
 
+void Serial_init()
+{
+    Serial.begin(115200);
+    Serial.println(F("Serial started"));
+}
 
-void setup()
+void SHTC1_init(void)
+{
+    Wire.begin();
+}
+
+
+void ZMOD_setup()
 {
     int8_t lib_ret;
     zmod4xxx_err api_ret;
-    Serial.begin(115200);
-    Serial.println(F("Serial started"));
 
     /**
         Additional delay is required to wait till system is ready.
@@ -133,12 +167,12 @@ void setup()
 
 }
 
-void loop()
+void ZMOD_loop()
 {
     int8_t lib_ret;
     zmod4xxx_err api_ret;
     
-    /* Start a measurement. */
+    /* Start a ZMOD4410 measurement. */
     api_ret = zmod4xxx_start_measurement(&dev);
     if (api_ret) {
         Serial.print(F("Error "));
@@ -255,4 +289,77 @@ void loop()
 void error_handle()
 {
     while (1);
+}
+
+
+
+
+int readSVM30_J_RHT(float *temperature, float *humidity) {
+  uint8_t rht_data[6];
+
+  // Send RHT command
+  Wire.beginTransmission(SHTC1_ADDR);
+  Wire.write(SHTC1_RHT_CMD_MSB);
+  Wire.write(SHTC1_RHT_CMD_LSB);
+  if (Wire.endTransmission() != 0) {
+    return -1;
+  }
+
+  // Read RHT data
+  Wire.requestFrom(SHTC1_ADDR, 6);
+  if (Wire.available() != 6) {
+    return -1;
+  }
+
+  for (int i = 0; i < 6; i++) {
+    rht_data[i] = Wire.read();
+  }
+
+  // Decode humidity data
+  uint16_t humidity_raw = (rht_data[0] << 8) | rht_data[1];
+  *humidity = -6 + 125 * (humidity_raw / 65535.0);
+
+  // Decode temperature data
+  uint16_t temperature_raw = (rht_data[3] << 8) | rht_data[4];
+  *temperature = -45 + 175 * (temperature_raw / 65535.0);
+
+  return 0;
+}
+
+void SHTC1_loop() {
+  float temperature, humidity;
+
+  if (readSVM30_J_RHT(&temperature, &humidity) == 0) {
+    Serial.print("Temperature: ");
+    Serial.print(temperature);
+    Serial.print(" C, Humidity: ");
+    Serial.print(humidity);
+    Serial.println(" %");
+  } else {
+    Serial.println("Error reading SVM30-J data");
+  }
+
+  delay(1000); // Wait for a second before reading again
+}
+
+void setup()
+{
+  Serial_init();
+
+#if __ZMOD__ == 1  
+  ZMOD_setup();
+#else
+  SHTC1_init();
+#endif
+}
+
+
+void app_loop()
+{
+#if __ZMOD__ == 1  
+    ZMOD_loop();
+#else
+    SHTC1_loop();
+#endif
+
 }
