@@ -34,11 +34,11 @@ extern "C" {
 /**
 * @brief Variables that describe the library version
 */
-typedef struct {
-    uint8_t major;
-    uint8_t minor;
-    uint8_t patch;
-} algorithm_version;
+// typedef struct {
+//     uint8_t major;
+//     uint8_t minor;
+//     uint8_t patch;
+// } algorithm_version;
 
 /** \addtogroup RetCodes Return codes of the algorithm functions.
  *  @{

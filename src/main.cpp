@@ -15,6 +15,8 @@
  * @author Renesas Electronics Corporation
  */
 
+#include "Arduino.h"
+#include "hal_arduino.h"
 #include "wire.h"
 #include "sys_defs.h"
 
@@ -26,11 +28,13 @@ int readSVM30_J_RHT(float *temperature, float *humidity);
 #define __SHTC1_IN_ZMOD__ 1
 
 //====== ZMOD4410 module =============
-#include <zmod4410_config_rel_iaq.h>
-#include <zmod4xxx.h>
-#include <zmod4xxx_hal.h>
-#include <rel_iaq.h>
-//#include <hal_arduino.h>
+#include "zmod4410_config_iaq2_ulp.h"
+#include "zmod4xxx.h"
+#include "zmod4xxx_cleaning.h"
+#include "rel_iaq.h"
+
+#include "zmod4xxx_hal.h"
+#include "iaq_2nd_gen_ulp.h"
 
 zmod4xxx_dev_t dev;
 
@@ -39,9 +43,14 @@ uint8_t zmod4xxx_status;
 uint8_t prod_data[ZMOD4410_PROD_DATA_LEN];
 uint8_t adc_result[ZMOD4410_ADC_DATA_LEN] = { 0 };
 uint8_t track_number[ZMOD4XXX_LEN_TRACKING];
-rel_iaq_handle_t algo_handle;
-rel_iaq_results_t algo_results;
-rel_iaq_inputs_t algo_input;
+// rel_iaq_handle_t algo_handle;
+// rel_iaq_results_t algo_results;
+// rel_iaq_inputs_t algo_input;
+
+
+    iaq_2nd_gen_ulp_handle_t algo_handle;
+    iaq_2nd_gen_ulp_results_t algo_results;
+    iaq_2nd_gen_ulp_inputs_t algo_input;
 
 
 //====== SVM30 module ==============
@@ -107,11 +116,15 @@ void ZMOD_setup()
      /****TARGET SPECIFIC FUNCTION ****/
 
     /* Sensor related data */
-    dev.i2c_addr =  ZMOD4410_I2C_ADDR;
+    dev.i2c_addr = ZMOD4410_I2C_ADDR;
     dev.pid = ZMOD4410_PID;
-    dev.init_conf = &zmod_rel_iaq_sensor_cfg[zmod4xxxINIT];
-    dev.meas_conf = &zmod_rel_iaq_sensor_cfg[MEASUREMENT];
+    dev.init_conf = &zmod_iaq2_ulp_sensor_cfg[INIT];
+    dev.meas_conf = &zmod_iaq2_ulp_sensor_cfg[MEASUREMENT];
     dev.prod_data = prod_data;
+
+
+
+
 
     /* Read product ID and configuration parameters. */
     api_ret = zmod4xxx_read_sensor_info(&dev);
@@ -146,21 +159,40 @@ void ZMOD_setup()
     }
     Serial.println("");
 
+
+//////////////////////////////
+/*
+    * Start the cleaning procedure. Check the Programming Manual on indications
+	* of usage. IMPORTANT NOTE: The cleaning procedure can be run only once
+	* during the modules lifetime and takes 1 minute (blocking).
+    */
+    // printf("Starting cleaning procedure. This might take up to 1 min ...\n");
+    // lib_ret = zmod4xxx_cleaning_run(&dev);
+    // if (ERROR_CLEANING == lib_ret) {
+    //     printf("Skipping cleaning procedure. It has already been performed!\n");
+    // } else if (lib_ret) {
+    //     printf("Error %d during cleaning procedure, exiting program!\n", lib_ret);
+    //     return;
+    // }
+
     /* Determine calibration parameters and configure measurement. */
-    api_ret = zmod4xxx_prepare_sensor(&dev);
-    if (api_ret) {
-        Serial.print(F("Error "));
-        Serial.print(api_ret);
-        Serial.println(F(" during preparation of the sensor, exiting program!\n"));
-        error_handle();
+    lib_ret = zmod4xxx_prepare_sensor(&dev);
+    if (lib_ret) {
+        printf("Error %d during preparation of the sensor, exiting program!\n",
+               lib_ret);
+        return;
     }
+
+//////////////////////////////
+
+
 
     /*
     * One-time initialization of the algorithm. Handle passed to calculation
     * function.
     */
-    lib_ret = init_rel_iaq(&algo_handle);
-    if (lib_ret) {
+   lib_ret = init_iaq_2nd_gen_ulp(&algo_handle);
+   if (lib_ret) {
         Serial.println(F("Error "));
         Serial.print(lib_ret);
         Serial.println(F(" during initializing algorithm, exiting program!"));
@@ -185,7 +217,7 @@ void ZMOD_loop()
     }
 
     /* Perform delay. Required to keep proper measurement timing. */
-    dev.delay_ms(ZMOD4410_REL_IAQ_SAMPLE_TIME);
+    dev.delay_ms(ZMOD4410_IAQ2_ULP_SAMPLE_TIME);
 
     /* Verify completion of measurement sequence. */
     api_ret = zmod4xxx_read_status(&dev, &zmod4xxx_status);
@@ -247,15 +279,20 @@ void ZMOD_loop()
 
     algo_input.adc_result = adc_result;
     /* Calculate algorithm results */
-    lib_ret =  calc_rel_iaq(&algo_handle, &dev, &algo_input, &algo_results);
-    /* Skip 100 stabilization samples for rel_iaq algorithm. */
-    if ((lib_ret != REL_IAQ_OK) && (lib_ret != REL_IAQ_STABILIZATION)) {
-        Serial.println(F("Error when calculating algorithm, exiting program!"));
-    } else {
-//        Serial.println(F("*********** Measurements ***********"));
+    //  lib_ret =  calc_rel_iaq(&algo_handle, &dev, &algo_input, &algo_results);
+        algo_input.humidity_pct = 30.0;
+        algo_input.temperature_degc = 23.0;
+
 #if __SHTC1_IN_ZMOD__ == 1
-    readSVM30_J_RHT(&temperature, &humidity);
+        readSVM30_J_RHT(&temperature, &humidity);
+        algo_input.humidity_pct = temperature;
+        algo_input.temperature_degc = humidity;
 #endif
+        /* Calculate algorithm results. */
+        lib_ret = calc_iaq_2nd_gen_ulp(&algo_handle, &dev, &algo_input, &algo_results);
+        /* Skip 10 stabilization samples for iaq_2nd_gen_ulp algorithm. */
+        printf("*********** Measurements ***********\n");
+        Serial.print("\r\n");
         Serial.print(++loop_counter);
         Serial.printf(F(", "));
         Serial.print(temperature);
@@ -263,14 +300,43 @@ void ZMOD_loop()
         Serial.print(humidity - 20);
         Serial.printf(F(", "));
         for (int i = 0; i < 13; i++) {
-//            Serial.print(F(" Rmox["));
-//            Serial.print(i);
-//            Serial.print(F("] = "));
+            // Serial.printf(F()" Rmox[%d]=", i);
+            // printf("%.3f,", algo_results.rmox[i] / 1e3);
+           Serial.print(F(" Rmox["));
+           Serial.print(i);
+           Serial.print(F("] = "));
             Serial.print(algo_results.rmox[i] / 1e3);
             Serial.print(F(", "));
         }
-//        Serial.print(F(" Rel IAQ  = "));
-        Serial.print(algo_results.rel_iaq);
+        Serial.print("\r\n");
+        Serial.printf(F("Rcda = ")); Serial.print(algo_results.log_nonlog_rcda[0]/ 1e3); Serial.printf(F(", "));
+        Serial.printf(F("EtOH = ")); Serial.print(algo_results.etoh); Serial.printf(F(", "));
+        Serial.printf(F("TVOC = ")); Serial.print(algo_results.tvoc); Serial.printf(F(", "));
+        Serial.printf(F("IAQ  = ")); Serial.print(algo_results.iaq); Serial.printf(F(", "));
+        Serial.printf(F("eCO2 = ")); Serial.print(algo_results.eco2); Serial.printf(F("\r\n\n"));
+   /* Skip 100 stabilization samples for rel_iaq algorithm. */
+    // if ((lib_ret != REL_IAQ_OK) && (lib_ret != REL_IAQ_STABILIZATION)) 
+    // {
+    //     Serial.println(F("Error when calculating algorithm, exiting program!"));
+    // } 
+    // else 
+    {
+// //        Serial.println(F("*********** Measurements ***********"));
+//         Serial.print(++loop_counter);
+//         Serial.printf(F(", "));
+//         Serial.print(temperature);
+//         Serial.printf(F(", "));
+//         Serial.print(humidity - 20);
+//         Serial.printf(F(", "));
+//         for (int i = 0; i < 13; i++) {
+// //            Serial.print(F(" Rmox["));
+// //            Serial.print(i);
+// //            Serial.print(F("] = "));
+//             Serial.print(algo_results.rmox[i] / 1e3);
+//             Serial.print(F(", "));
+//         }
+// //        Serial.print(F(" Rel IAQ  = "));
+//         Serial.print(algo_results.rel_iaq);
         Serial.print(F(", "));
         switch (lib_ret) {
         case REL_IAQ_STABILIZATION:
@@ -288,11 +354,11 @@ void ZMOD_loop()
         }
 
     }
-   if (lib_ret == REL_IAQ_STABILIZATION) {
-     dev.delay_ms(1000);
-   } else {
-     dev.delay_ms(10000-ZMOD4410_REL_IAQ_SAMPLE_TIME);
-   }
+//    if (lib_ret == REL_IAQ_STABILIZATION) {
+//      dev.delay_ms(1000);
+//    } else {
+//      dev.delay_ms(10000-ZMOD4410_IAQ2_ULP_SAMPLE_TIME);
+//    }
 
 }
 
@@ -358,14 +424,14 @@ void setup()
 
 #if __ZMOD__ == 1  
   ZMOD_setup();
-  Serial.println("line,temp,humid,Rmox0,Rmox1,Rmox2,Rmox3,Rmox4,Rmox5,Rmox6,Rmox7,Rmox8,Rmox9,Rmox10,Rmox11,Rmox12,RelIAQ");
+//   Serial.println("line,temp,humid,Rmox0,Rmox1,Rmox2,Rmox3,Rmox4,Rmox5,Rmox6,Rmox7,Rmox8,Rmox9,Rmox10,Rmox11,Rmox12,RelIAQ");
 #else
   SHTC1_init();
 #endif
 }
 
 
-void app_loop()
+void loop()
 {
 #if __ZMOD__ == 1  
     ZMOD_loop();

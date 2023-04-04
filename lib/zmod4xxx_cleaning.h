@@ -11,7 +11,7 @@
 /**
  * @file    zmod4xxx_cleaning.h
  * @brief   This file contains the cleaning function definition for ZMOD4xxx.
- * @version 2.5.1
+ * @version 2.5.2
  * @author Renesas Electronics Corporation
  * @details The library contains the function that starts the cleaning procedure.
  *          **The procedure takes 1 minute.** After successful cleaning,
