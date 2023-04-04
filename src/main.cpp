@@ -365,7 +365,7 @@ void setup()
 }
 
 
-void app_loop()
+void loop()
 {
 #if __ZMOD__ == 1  
     ZMOD_loop();
