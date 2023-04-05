@@ -22,7 +22,7 @@ void error_handle();
 
 int readSVM30_J_RHT(float *temperature, float *humidity);
 
-#define __ZMOD__ 1
+#define __ZMOD__ 0
 #define __SHTC1_IN_ZMOD__ 1
 
 //====== ZMOD4410 module =============
@@ -60,7 +60,20 @@ rel_iaq_inputs_t algo_input;
 #define SHTC1_RHT_CMD_MSB 0x5C
 #define SHTC1_RHT_CMD_LSB 0x24
 
+// SGP30
+#define SGP_ADDR 0x58
 
+#define SGP_INIT_AIR_Q_MSB 0x20
+#define SGP_INIT_AIR_Q_LSB 0x03
+
+#define SGP_MEASURE_AIR_Q_MSB 0x20
+#define SGP_MEASURE_AIR_Q_LSB 0x08
+
+#define SGP_SET_HUMIDITY_MSB 0x20
+#define SGP_SET_HUMIDITY_LSB 0x61
+
+#define SGP_GET_RAW_MSB 0x20
+#define SGP_GET_RAW_LSB 0x50
 
 //======================================================================
 uint32_t loop_counter;
@@ -301,8 +314,65 @@ void error_handle()
     while (1);
 }
 
+int SGP_Init_air_quality() {
+   // Send RHT command
+  Wire.beginTransmission(SGP_ADDR);
+  Wire.write(SGP_INIT_AIR_Q_MSB);
+  Wire.write(SGP_INIT_AIR_Q_LSB);
+  if (Wire.endTransmission() != 0) {
+    return -1;
+  } 
+  return 0;
+}
+
+int SGP_set_humidity(float humidity) {
+   // Send RHT command
+    uint8_t h_int, h_frac;
+    h_int = floorf(humidity);
+    h_frac = (humidity - floorf(humidity)) * 256;
+
+  Wire.beginTransmission(SGP_ADDR);
+  Wire.write(SGP_INIT_AIR_Q_MSB);
+  Wire.write(SGP_INIT_AIR_Q_LSB);
+  if (Wire.endTransmission() != 0) {
+    return -1;
+  } 
+  return 0;
+}
+
+int SGP_measure_air_quality(float *f_aq_1, float *f_aq_2) {
+  uint8_t aq_data[6];
+
+  // Send RHT command
+  Wire.beginTransmission(SGP_ADDR);
+  Wire.write(SGP_MEASURE_AIR_Q_MSB);
+  Wire.write(SGP_MEASURE_AIR_Q_LSB);
+  if (Wire.endTransmission() != 0) {
+    return -1;
+  }
+
+  delay(12);
+
+  // Read RHT data
+  Wire.requestFrom(SGP_ADDR, 6);
+  if (Wire.available() != 6) {
+    return -1;
+  }
+
+  for (int i = 0; i < 6; i++) {
+    aq_data[i] = Wire.read();
+  }
+
+uint16_t aq_1 = (aq_data[0] << 8) | aq_data[1];
+  *f_aq_1 = aq_1;
+
+  // Decode temperature data
+  uint16_t aq_2 = (aq_data[3] << 8) | aq_data[4];
+  *f_aq_2 = aq_2;
 
 
+    return 0;
+}
 
 int readSVM30_J_RHT(float *temperature, float *humidity) {
   uint8_t rht_data[6];
@@ -327,7 +397,7 @@ int readSVM30_J_RHT(float *temperature, float *humidity) {
 
   // Decode humidity data
   uint16_t humidity_raw = (rht_data[0] << 8) | rht_data[1];
-  *humidity = -6 + 125 * (humidity_raw / 65535.0);
+  *humidity = -12 + 125 * (humidity_raw / 65535.0);
 
   // Decode temperature data
   uint16_t temperature_raw = (rht_data[3] << 8) | rht_data[4];
@@ -337,6 +407,34 @@ int readSVM30_J_RHT(float *temperature, float *humidity) {
 }
 
 void SHTC1_loop() {
+  float temperature, humidity;
+  float aq_1, aq_2;
+
+  if (readSVM30_J_RHT(&temperature, &humidity) == 0) {
+    Serial.print("Temp,");
+    Serial.print(temperature);
+    Serial.print(", Humid, ");
+    Serial.print(humidity);
+    Serial.print(", ");
+  } else {
+    Serial.println("Error reading SVM30-J data");
+  }
+
+    if (SGP_measure_air_quality(&aq_1, &aq_2) == 0) {
+    Serial.print("aq_1, ");
+    Serial.print(aq_1);
+    Serial.print(", aq_2, ");
+    Serial.print(aq_2);
+    Serial.println("");
+
+    }
+
+
+  delay(1000); // Wait for a second before reading again
+}
+
+
+void SVM30_loop() {
   float temperature, humidity;
 
   if (readSVM30_J_RHT(&temperature, &humidity) == 0) {
@@ -350,7 +448,9 @@ void SHTC1_loop() {
   }
 
   delay(1000); // Wait for a second before reading again
+
 }
+
 
 void setup()
 {
@@ -361,6 +461,7 @@ void setup()
   Serial.println("line,temp,humid,Rmox0,Rmox1,Rmox2,Rmox3,Rmox4,Rmox5,Rmox6,Rmox7,Rmox8,Rmox9,Rmox10,Rmox11,Rmox12,RelIAQ");
 #else
   SHTC1_init();
+  SGP_Init_air_quality();
 #endif
 }
 
@@ -369,7 +470,7 @@ void loop()
 {
 #if __ZMOD__ == 1  
     ZMOD_loop();
-#else
+#else 
     SHTC1_loop();
 #endif
 
