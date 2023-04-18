@@ -370,8 +370,22 @@ uint16_t aq_1 = (aq_data[0] << 8) | aq_data[1];
   uint16_t aq_2 = (aq_data[3] << 8) | aq_data[4];
   *f_aq_2 = aq_2;
 
+  return 0;
+}
 
-    return 0;
+uint8_t SGP_CalcCrc(uint8_t data[2]) {
+  uint8_t crc = 0xFF;
+  for (int i = 0; i < 2; i++) {
+    crc ^= data[i];
+    for (uint8_t bit = 8; bit > 0; --bit) {
+      if(crc & 0x80) {
+        crc = (crc << 1) ^ 0x31u;
+      } else {
+        crc = (crc << 1);
+      }
+    }
+  }
+  return crc;
 }
 
 int readSVM30_J_RHT(float *temperature, float *humidity) {
