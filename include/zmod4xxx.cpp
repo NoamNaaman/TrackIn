@@ -102,9 +102,9 @@ zmod4xxx_err zmod4xxx_read_sensor_info(zmod4xxx_dev_t *dev)
     }
     product_id = ((data_buf[0] * 256) + data_buf[1]);
 
-    if (dev->pid != product_id) {
-        return ERROR_SENSOR_UNSUPPORTED;
-    }
+    // if (dev->pid != product_id) {
+    //     return ERROR_SENSOR_UNSUPPORTED;
+    // }
 
     i2c_ret = dev->read(dev->i2c_addr, ZMOD4XXX_ADDR_CONF, dev->config,
                         ZMOD4XXX_LEN_CONF);

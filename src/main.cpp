@@ -131,8 +131,7 @@ void ZMOD_setup()
     if (api_ret) {
         Serial.print(F("Error "));
         Serial.print(api_ret);
-        Serial.println(
-            F(" during reading sensor information, exiting program!\n"));
+        Serial.println(F(" during reading sensor information, exiting program!\n"));
         error_handle();
     }
 
