@@ -167,12 +167,23 @@ zmod4xxx_err zmod4xxx_init_sensor(zmod4xxx_dev_t *dev)
         return ERROR_I2C;
     }
 
-    api_ret = zmod4xxx_calc_factor(dev->init_conf, hsp, dev->config);
-    if (api_ret) {
-        return api_ret;
+    // api_ret = zmod4xxx_calc_factor(dev->init_conf, hsp, dev->config);
+    // if (api_ret) {
+    //     return api_ret;
+    // }
+
+    float hspf = (-((float)dev->config[2] * 256.0 + dev->config[3]) *
+                 ((dev->config[4] + 640.0) * (dev->config[5] + 80.0) - 512000.0))
+                 / 12288000.0;
+
+    if ((0.0 > hspf) || (4096.0 < hspf)) {
+        return ERROR_INIT_OUT_OF_RANGE;
     }
 
-    i2c_ret = dev->write(dev->i2c_addr, dev->init_conf->h.addr, hsp,
+    data_r[0] = (uint8_t)((uint16_t)hspf >> 8);
+    data_r[1] = (uint8_t)((uint16_t)hspf & 0x00FF);
+
+    i2c_ret = dev->write(dev->i2c_addr, dev->init_conf->h.addr, data_r,
                          dev->init_conf->h.len);
     if (i2c_ret) {
         return ERROR_I2C;
@@ -198,14 +209,22 @@ zmod4xxx_err zmod4xxx_init_sensor(zmod4xxx_dev_t *dev)
     if (i2c_ret) {
         return ERROR_I2C;
     }
+    
+    dev->delay_ms(20);
+
     /* This section can be change with interrupt for microcontrollers */
-    do {
-        api_ret = zmod4xxx_read_status(dev, &zmod4xxx_status);
-        if (api_ret) {
-            return api_ret;
-        }
-        dev->delay_ms(50);
-    } while (zmod4xxx_status & STATUS_SEQUENCER_RUNNING_MASK);
+    // do {
+    //     api_ret = zmod4xxx_read_status(dev, &zmod4xxx_status);
+    //     if (api_ret) {
+    //         return api_ret;
+    //     }
+    //     dev->delay_ms(50);
+    // } while (zmod4xxx_status & STATUS_SEQUENCER_RUNNING_MASK);
+
+    api_ret = zmod4xxx_read_status(dev, data_r);
+    if (0x80 == (0x80 & data_r[0])) {
+        return ERROR_GAS_TIMEOUT;
+    }
 
     i2c_ret = dev->read(dev->i2c_addr, dev->init_conf->r.addr, data_r,
                         dev->init_conf->r.len);
@@ -264,46 +283,79 @@ zmod4xxx_err zmod4xxx_start_measurement(zmod4xxx_dev_t *dev)
     return ZMOD4XXX_OK;
 }
 
-zmod4xxx_err zmod4xxx_read_adc_result(zmod4xxx_dev_t *dev, uint8_t *adc_result)
+zmod4xxx_err zmod4xxx_read_adc_result(zmod4xxx_dev_t *dev, float rmox)
 {
-    int8_t ret;
+    int8_t ret = 0;
+    uint8_t data[2] = {0};
+    uint16_t adc_result = 0;
 
-    ret = dev->read(dev->i2c_addr, dev->meas_conf->r.addr, adc_result,
+    // ret = dev->read(dev->i2c_addr, dev->meas_conf->r.addr, adc_result,
+    //                 dev->meas_conf->r.len);
+    // if (ret) {
+    //     return ERROR_I2C;
+    // }
+
+        ret = dev->read(dev->i2c_addr, dev->meas_conf->r.addr, data,
                     dev->meas_conf->r.len);
     if (ret) {
         return ERROR_I2C;
     }
 
-    return ZMOD4XXX_OK;
-}
+    adc_result = (uint16_t)(data[0] << 8) | data[1];
 
-zmod4xxx_err zmod4xxx_calc_rmox(zmod4xxx_dev_t *dev, uint8_t *adc_result,
-                                float *rmox)
-{
-    uint8_t i;
-    uint16_t adc_value = 0;
-    float *p = rmox;
-    float rmox_local = 0;
+    ret = dev->read(dev->i2c_addr, 0xB7, data, 1);
+    if (ret) {
+        return ERROR_I2C;
+    }
 
-    for (i = 0; i < dev->meas_conf->r.len; i = i + 2) {
-        adc_value = (((uint16_t)(adc_result[i])) << 8);
-        adc_value |= (adc_result[i + 1]);
-        if (0.0 > (adc_value - dev->mox_lr)) {
-            *p = 1e-3;
-            p++;
-        } else if (0.0 >= (dev->mox_er - adc_value)) {
-            *p = 10e9;
-            p++;
-        } else {
-            rmox_local = dev->config[0] * 1e3 *
-                         (float)(adc_value - dev->mox_lr) /
-                         (float)(dev->mox_er - adc_value);
-            *p = rmox_local;
-            p++;
+    if( 0 != data[0]) {
+        if (STATUS_ACCESS_CONFLICT_MASK & data[0]) {
+            return ERROR_ACCESS_CONFLICT;
+        }
+        else if (STATUS_POR_EVENT_MASK & data[0]) {
+            return ERROR_POR_EVENT;
         }
     }
+
+    if (0.0 > (adc_result - dev->mox_lr)) {
+        rmox = 1e-3;
+    } else if (0.0 >= (dev->mox_er - adc_result)) {
+        rmox = 10e9;
+    } else {
+        rmox = dev->config[0] * 1000.0 * (adc_result - dev->mox_lr) /
+                                          (dev->mox_er - adc_result);
+    }
+
     return ZMOD4XXX_OK;
 }
+
+// zmod4xxx_err zmod4xxx_calc_rmox(zmod4xxx_dev_t *dev, uint8_t *adc_result,
+//                                 float *rmox)
+// {
+//     uint8_t i;
+//     uint16_t adc_value = 0;
+//     float *p = rmox;
+//     float rmox_local = 0;
+
+//     for (i = 0; i < dev->meas_conf->r.len; i = i + 2) {
+//         adc_value = (((uint16_t)(adc_result[i])) << 8);
+//         adc_value |= (adc_result[i + 1]);
+//         if (0.0 > (adc_value - dev->mox_lr)) {
+//             *p = 1e-3;
+//             p++;
+//         } else if (0.0 >= (dev->mox_er - adc_value)) {
+//             *p = 10e9;
+//             p++;
+//         } else {
+//             rmox_local = dev->config[0] * 1e3 *
+//                          (float)(adc_value - dev->mox_lr) /
+//                          (float)(dev->mox_er - adc_value);
+//             *p = rmox_local;
+//             p++;
+//         }
+//     }
+//     return ZMOD4XXX_OK;
+// }
 
 zmod4xxx_err zmod4xxx_prepare_sensor(zmod4xxx_dev_t *dev)
 {
@@ -321,18 +373,18 @@ zmod4xxx_err zmod4xxx_prepare_sensor(zmod4xxx_dev_t *dev)
     return ZMOD4XXX_OK;
 }
 
-zmod4xxx_err zmod4xxx_read_rmox(zmod4xxx_dev_t *dev, uint8_t *adc_result,
-                                float *rmox)
-{
-    zmod4xxx_err ret;
-    ret = zmod4xxx_read_adc_result(dev, adc_result);
-    if (ret) {
-        return ret;
-    }
-    dev->delay_ms(50);
-    ret = zmod4xxx_calc_rmox(dev, adc_result, rmox);
-    if (ret) {
-        return ret;
-    }
-    return ZMOD4XXX_OK;
-}
+// zmod4xxx_err zmod4xxx_read_rmox(zmod4xxx_dev_t *dev, float *adc_result,
+//                                 float *rmox)
+// {
+//     zmod4xxx_err ret;
+//     ret = zmod4xxx_read_adc_result(dev, adc_result);
+//     if (ret) {
+//         return ret;
+//     }
+//     dev->delay_ms(50);
+//     ret = zmod4xxx_calc_rmox(dev, adc_result, rmox);
+//     if (ret) {
+//         return ret;
+//     }
+//     return ZMOD4XXX_OK;
+// }

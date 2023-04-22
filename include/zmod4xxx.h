@@ -63,8 +63,8 @@ zmod4xxx_err zmod4xxx_calc_factor(zmod4xxx_conf *conf, uint8_t *hsp,
  * @retval  0 success
  * @retval  "!= 0" error
  */
-zmod4xxx_err zmod4xxx_calc_rmox(zmod4xxx_dev_t *dev, uint8_t *adc_result,
-                                float *rmox);
+// zmod4xxx_err zmod4xxx_calc_rmox(zmod4xxx_dev_t *dev, uint8_t *adc_result,
+//                                 float *rmox);
 
 /**
  * @brief   Check the error event of the device.
@@ -123,7 +123,7 @@ zmod4xxx_err zmod4xxx_prepare_sensor(zmod4xxx_dev_t *dev);
  * @retval  0 success
  * @retval  "!= 0" error
  */
-zmod4xxx_err zmod4xxx_read_adc_result(zmod4xxx_dev_t *dev, uint8_t *adc_result);
+zmod4xxx_err zmod4xxx_read_adc_result(zmod4xxx_dev_t *dev, float rmox);
 
 /**
  * @brief High-level function to read rmox
@@ -136,7 +136,7 @@ zmod4xxx_err zmod4xxx_read_adc_result(zmod4xxx_dev_t *dev, uint8_t *adc_result);
  * @retval 0 success
  * @retval "!= 0" error
  */
-zmod4xxx_err zmod4xxx_read_rmox(zmod4xxx_dev_t *dev, uint8_t *adc_result,
+zmod4xxx_err zmod4xxx_read_rmox(zmod4xxx_dev_t *dev, float *adc_result,
                                 float *rmox);
 
 /**
