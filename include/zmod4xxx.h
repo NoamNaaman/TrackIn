@@ -123,7 +123,7 @@ zmod4xxx_err zmod4xxx_prepare_sensor(zmod4xxx_dev_t *dev);
  * @retval  0 success
  * @retval  "!= 0" error
  */
-zmod4xxx_err zmod4xxx_read_adc_result(zmod4xxx_dev_t *dev, float rmox);
+zmod4xxx_err zmod4xxx_read_adc_result(zmod4xxx_dev_t *dev, float *rmox);
 
 /**
  * @brief High-level function to read rmox

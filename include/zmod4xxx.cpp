@@ -158,9 +158,14 @@ zmod4xxx_err zmod4xxx_init_sensor(zmod4xxx_dev_t *dev)
 {
     int8_t i2c_ret;
     zmod4xxx_err api_ret;
-    uint8_t hsp[HSP_MAX * 2];
-    uint8_t data_r[RSLT_MAX];
-    uint8_t zmod4xxx_status;
+    //uint8_t hsp[HSP_MAX * 2];
+    //uint8_t zmod4xxx_status;
+    // uint8_t data_r[RSLT_MAX];
+    uint8_t data_r[4] = {0};
+
+    if (!dev->init_conf) {
+    return ERROR_CONFIG_MISSING;
+    }
 
     i2c_ret = dev->read(dev->i2c_addr, 0xB7, data_r, 1);
     if (i2c_ret) {
@@ -239,36 +244,56 @@ zmod4xxx_err zmod4xxx_init_sensor(zmod4xxx_dev_t *dev)
 
 zmod4xxx_err zmod4xxx_init_measurement(zmod4xxx_dev_t *dev)
 {
-    int8_t i2c_ret;
-    zmod4xxx_err api_ret;
-    uint8_t hsp[HSP_MAX * 2];
+        int8_t ret = 0;
+    uint8_t data[4] = {0};
 
-    api_ret = zmod4xxx_calc_factor(dev->meas_conf, hsp, dev->config);
-    if (api_ret) {
-        return api_ret;
+    if (!dev->meas_conf) {
+        return ERROR_CONFIG_MISSING;
     }
 
-    i2c_ret = dev->write(dev->i2c_addr, dev->meas_conf->h.addr, hsp,
-                         dev->meas_conf->h.len);
-    if (i2c_ret) {
+    ret = dev->read(dev->i2c_addr, 0xB7, data, 1);
+    if(ret) {
         return ERROR_I2C;
     }
-    i2c_ret = dev->write(dev->i2c_addr, dev->meas_conf->d.addr,
-                         dev->meas_conf->d.data_buf, dev->meas_conf->d.len);
-    if (i2c_ret) {
+
+    float hspf = (-((float)dev->config[2] * 256.0 + dev->config[3]) *
+                 ((dev->config[4] + 640.0) * (dev->config[5] - 600.0) - 512000.0))
+                 / 12288000.0;
+    if ((0.0 > hspf) || (4096.0 < hspf)) {
+        return ERROR_INIT_OUT_OF_RANGE;
+    }
+
+// #ifdef CONTINUOUS_MODE
+    data[0] = (uint8_t)((uint16_t)hspf >> 8);
+    data[1] = (uint8_t)((uint16_t)hspf & 0x00FF);
+// #endif
+
+    ret = dev->write(dev->i2c_addr, dev->meas_conf->h.addr, data,
+                     dev->meas_conf->h.len);
+    if(ret) {
         return ERROR_I2C;
     }
-    i2c_ret = dev->write(dev->i2c_addr, dev->meas_conf->m.addr,
-                         dev->meas_conf->m.data_buf, dev->meas_conf->m.len);
-    if (i2c_ret) {
+
+    ret = dev->write(dev->i2c_addr, dev->meas_conf->d.addr,
+                     dev->meas_conf->d.data_buf, dev->meas_conf->d.len);
+    if(ret) {
         return ERROR_I2C;
     }
-    i2c_ret = dev->write(dev->i2c_addr, dev->meas_conf->s.addr,
-                         dev->meas_conf->s.data_buf, dev->meas_conf->s.len);
-    if (i2c_ret) {
+
+    ret = dev->write(dev->i2c_addr, dev->meas_conf->m.addr,
+                     dev->meas_conf->m.data_buf, dev->meas_conf->m.len);
+    if(ret) {
         return ERROR_I2C;
     }
+
+    ret = dev->write(dev->i2c_addr, dev->meas_conf->s.addr,
+                     dev->meas_conf->s.data_buf, dev->meas_conf->s.len);
+    if(ret) {
+        return ERROR_I2C;
+    }
+
     return ZMOD4XXX_OK;
+   
 }
 
 zmod4xxx_err zmod4xxx_start_measurement(zmod4xxx_dev_t *dev)
@@ -283,7 +308,7 @@ zmod4xxx_err zmod4xxx_start_measurement(zmod4xxx_dev_t *dev)
     return ZMOD4XXX_OK;
 }
 
-zmod4xxx_err zmod4xxx_read_adc_result(zmod4xxx_dev_t *dev, float rmox)
+zmod4xxx_err zmod4xxx_read_adc_result(zmod4xxx_dev_t *dev, float *rmox)
 {
     int8_t ret = 0;
     uint8_t data[2] = {0};
@@ -318,11 +343,11 @@ zmod4xxx_err zmod4xxx_read_adc_result(zmod4xxx_dev_t *dev, float rmox)
     }
 
     if (0.0 > (adc_result - dev->mox_lr)) {
-        rmox = 1e-3;
+        *rmox = 1e-3;
     } else if (0.0 >= (dev->mox_er - adc_result)) {
-        rmox = 10e9;
+        *rmox = 10e9;
     } else {
-        rmox = dev->config[0] * 1000.0 * (adc_result - dev->mox_lr) /
+        *rmox = dev->config[0] * 1000.0 * (adc_result - dev->mox_lr) /
                                           (dev->mox_er - adc_result);
     }
 

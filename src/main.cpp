@@ -35,6 +35,8 @@ static raq_params raq_par = {
 };
 
 raq_results_t raq_results = { .cs_state = OFF, .conc_ratio = 0.0F };
+uint8_t state;
+char buffer[50];
 
 void error_handle();
 
@@ -44,7 +46,8 @@ zmod4xxx_dev_t dev;
 uint8_t zmod4xxx_status;
 uint8_t prod_data[ZMOD4450_PROD_DATA_LEN];
 //uint8_t adc_result[ZMOD4450_ADC_DATA_LEN] = { 0 };
-float adc_result[ZMOD4450_ADC_DATA_LEN] = { 0 };
+// float adc_result[ZMOD4450_ADC_DATA_LEN] = { 0 };
+float adc_result;
 uint8_t track_number[ZMOD4XXX_LEN_TRACKING];
 oaq_2nd_gen_handle_t algo_handle;
 oaq_2nd_gen_results_t algo_results;
@@ -173,120 +176,65 @@ void loop()
         }
     } while (FIRST_SEQ_STEP != (zmod4xxx_status & STATUS_LAST_SEQ_STEP_MASK));
 
-    // /* Check if measurement is running. */
-    // if (zmod4xxx_status & STATUS_SEQUENCER_RUNNING_MASK) {
-    //     /*
-    //     * Check if reset during measurement occured. For more information,
-    //     * read the Programming Manual, section "Error Codes".
-    //     */
-    //     api_ret = zmod4xxx_check_error_event(&dev);
-    //     switch (api_ret) {
-    //     case ERROR_POR_EVENT:
-    //         Serial.print(F("Error "));
-    //         Serial.print(api_ret);
-    //         Serial.println(F("Measurement completion fault. Unexpected sensor reset.\n"));
-    //         break;
-    //     case ZMOD4XXX_OK:
-    //         Serial.print(F("Error "));
-    //         Serial.print(api_ret);
-    //         Serial.println(F("Measurement completion fault. Wrong sensor setup.\n"));
-    //         break;
-    //     default:
-    //         Serial.print(F("Error "));
-    //         Serial.print(api_ret);
-    //         Serial.println(F("Error during reading status register "));
-    //         break;
-    //     }
-    //      error_handle();
-    // }
+ 
+    float r_mox;
+    uint8_t zmod44xx_status;
+    uint8_t state;
+    int8_t ret;
 
-    /* Read sensor ADC output. */
-    api_ret = zmod4xxx_read_adc_result(&dev, *adc_result);
-    if (api_ret) {
-        Serial.print(F("Error "));
-        Serial.print(api_ret);
-        Serial.println(F("Error %d during read of ADC results, exiting program!\n"));
-        error_handle();
+    /* INSTEAD OF POLLING THE INTERRUPT CAN BE USED FOR OTHER HW */
+    /* wait until readout result is possible */
+    ret = zmod4xxx_read_status(&dev, &zmod44xx_status);
+    if(ret) {
+        Serial.printf("Error %d, exiting program!\n", ret);
+}
+    if(LAST_SEQ_STEP != (zmod44xx_status & STATUS_LAST_SEQ_STEP_MASK))
+    {
+        dev.delay_ms(50);
     }
 
-    /*
-    * Check validity of the ADC results. For more information, read the
-    * Programming Manual, section "Error Codes".
-    */
-    api_ret = zmod4xxx_check_error_event(&dev);
-    if (api_ret) {
-        Serial.print(F("Error "));
-        Serial.print(api_ret);
-        Serial.println(F("during reading status register, exiting program!\n"));
-        error_handle();
+    /* evaluate and show measurement results */
+    ret = zmod4xxx_read_adc_result(&dev, &adc_result);
+    if(ret) {
+        if(ERROR_ACCESS_CONFLICT == ret) {
+            Serial.printf("Error %d, AccessConflict!\n", ret);
+        }
+        else if(ERROR_POR_EVENT == ret) {
+            Serial.printf("Error %d, exiting program!\n", ret);
+        }
     }
 
-
-    // algo_input.adc_result = adc_result;
-    /*
-	* The ambient compensation needs humidity [RH] and temperature [DegC]
-    * measurements! Input them here.
-	*/
-    // algo_input.humidity_pct = 50.0;
-    // algo_input.temperature_degc = 20.0;
-
-   /* To work with the algorithms target specific libraries needs to be
+    /* To work with the algorithms target specific libraries needs to be
      * downloaded from IDT webpage and included into the project */
 
     /* get raq control signal and Air Quality Change Rate */
-    api_ret = calc_raq( *adc_result, &raq_par, &raq_results);
+    state = calc_raq( adc_result, &raq_par, &raq_results);
 
-    printf("\n");
-    printf("Measurement:\n");
-    printf("  Rmox  = %5.0f kOhm\n", (adc_result / 1000.0));
-    if (ZMOD4450_OK == api_ret) {
-        printf("  raq: control state %d\n", raq_results.cs_state);
-        printf("  raq: Air Quality Change Rate %f\n", raq_results.conc_ratio);
+    Serial.println("Measurement:");
+    int rmox_kOhm = (int)(adc_result / 1000.0);
+    sprintf(buffer, "  Rmox  = %5d kOhm\n", rmox_kOhm);
+    Serial.println(buffer);
+    if (ZMOD4450_OK == state) {
+        sprintf(buffer,"  raq: control state %d", raq_results.cs_state);
+        Serial.println(buffer);
+        sprintf(buffer,"  raq: Air Quality Change Rate %f", raq_results.conc_ratio);
+        Serial.println(buffer);
     }
     else {
-        printf("  raq: control state: Sensor not stabilized\n");
-        printf("  raq: Air Quality Change Rate: Sensor not stabilized\n");
+        Serial.println("  raq: control state: Sensor not stabilized");
+        Serial.println("  raq: Air Quality Change Rate: Sensor not stabilized");
     }
 
     /* INSTEAD OF POLLING THE INTERRUPT CAN BE USED FOR OTHER HW */
     /* waiting for sensor ready */
     while (FIRST_SEQ_STEP != (zmod4xxx_status & STATUS_LAST_SEQ_STEP_MASK)) {
         dev.delay_ms(50);
-        api_ret = zmod4xxx_read_status(dev, &zmod4xxx_status);
+        api_ret = zmod4xxx_read_status(&dev, &zmod4xxx_status);
         if(api_ret) {
-            printf("Error %d, exiting program!\n", api_ret);
+            sprintf(buffer,"Error %d, exiting program!", api_ret);
+            Serial.println(buffer);
         }
     }
-
-    /* Calculate algorithm results */
-    // lib_ret =  calc_oaq_2nd_gen(&algo_handle, &dev, &algo_input, &algo_results);
-    // /* Skip 900 stabilization samples for oaq_2nd_gen algorithm. */
-    // if ((lib_ret != OAQ_2ND_GEN_OK) && (lib_ret != OAQ_2ND_GEN_STABILIZATION)) {
-    //     Serial.println(F("Error when calculating algorithm, exiting program!"));
-    // } else {
-    //     Serial.println("*********** Measurements ***********");
-    //     for (int i = 0; i < 8; i++) {
-    //         Serial.print(" Rmox[");
-    //         Serial.print(i);
-    //         Serial.print("] = ");
-    //         Serial.print(algo_results.rmox[i] / 1e3);
-    //         Serial.println(" kOhm");
-    //     }
-    //     Serial.print(" O3_conc_ppb = ");
-    //     Serial.println(algo_results.O3_conc_ppb);
-    //     Serial.print(" Fast AQI = ");
-    //     Serial.println(algo_results.FAST_AQI);
-    //     Serial.print(" EPA AQI = ");
-    //     Serial.println(algo_results.EPA_AQI);
-
-
-    //     if (lib_ret == OAQ_2ND_GEN_STABILIZATION) {
-    //         Serial.println(F("Warm-Up!"));
-    //     } else {
-    //         Serial.println(F("Valid!"));
-    //     }
-    // }
-
 
 }
 
