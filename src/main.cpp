@@ -211,14 +211,17 @@ void loop()
     state = calc_raq( adc_result, &raq_par, &raq_results);
 
     Serial.println("Measurement:");
-    int rmox_kOhm = (int)(adc_result / 1000.0);
-    sprintf(buffer, "  Rmox  = %5d kOhm\n", rmox_kOhm);
-    Serial.println(buffer);
+    Serial.println(String("  Rmox:") +String (adc_result/1000,5));
+    // int rmox_kOhm = (int)(adc_result / 1000.0);
+    // sprintf(buffer, "  Rmox  = %5d kOhm\n", rmox_kOhm);
+    // Serial.println(buffer);
     if (ZMOD4450_OK == state) {
-        sprintf(buffer,"  raq: control state %d", raq_results.cs_state);
-        Serial.println(buffer);
-        sprintf(buffer,"  raq: Air Quality Change Rate %f", raq_results.conc_ratio);
-        Serial.println(buffer);
+        Serial.println(String("  raq: control state: ") + String (raq_results.cs_state == ON ? "On" : "Off"));
+        // sprintf(buffer,"  raq: control state %d", raq_results.cs_state);
+        // Serial.println(buffer);
+        Serial.println(String("  raq: Air Quality Change Rate: ") + String (raq_results.conc_ratio,2));
+        // sprintf(buffer,"  raq: Air Quality Change Rate %f", raq_results.conc_ratio);
+        // Serial.println(buffer);
     }
     else {
         Serial.println("  raq: control state: Sensor not stabilized");
@@ -231,8 +234,9 @@ void loop()
         dev.delay_ms(50);
         api_ret = zmod4xxx_read_status(&dev, &zmod4xxx_status);
         if(api_ret) {
-            sprintf(buffer,"Error %d, exiting program!", api_ret);
-            Serial.println(buffer);
+            Serial.println(String("Error ") + String(api_ret) + String(" exiting program!"));
+            // sprintf(buffer,"Error %d, exiting program!", api_ret);
+            // Serial.println(buffer);
         }
     }
 
