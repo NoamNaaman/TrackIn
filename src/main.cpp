@@ -15,7 +15,6 @@
  * @author Renesas Electronics Corporation
  */
 
-
 #include <zmod4410_config_rel_iaq.h>
 #include <zmod4xxx.h>
 #include <zmod4xxx_hal.h>
