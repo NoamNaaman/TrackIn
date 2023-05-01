@@ -20,9 +20,30 @@
 #include <zmod4xxx.h>
 #include <zmod4xxx_hal.h>
 #include <rel_iaq.h>
-//#include <hal_arduino.h>
 
+// Start SD card defines
+#include <SPI.h>
+#include <SD.h>
+
+#define SD_CS_PIN PA8
+#define BUTTON_PIN PB5
+#define LED_PIN PA0
+#define LED_SD PA1
+#define DATA_SAVE_INTERVAL 10000 // in milliseconds
+#define FILE_MAX_SIZE 3600 // in number of data records
+#define DATA_REG_SIZE 15 // number of data registers
+float data[DATA_REG_SIZE];
+File dataFile;
+char filename[13];
+int fileIndex = 0;
+unsigned long lastDataSaveTime = 0;
+int dataRecordCount = 0;
+bool isSavingData = false;
+
+// Function placed at the end of the file
 void error_handle();
+void createNewDataFile();
+void writeDataRecordToFile();
 
 zmod4xxx_dev_t dev;
 
@@ -38,16 +59,47 @@ rel_iaq_inputs_t algo_input;
 
 void setup()
 {
-    int8_t lib_ret;
-    zmod4xxx_err api_ret;
+    pinMode(SD_CS_PIN, OUTPUT);
+    pinMode(BUTTON_PIN, INPUT_PULLUP);
+    pinMode(LED_PIN, OUTPUT);
+    pinMode(LED_SD, OUTPUT);
     Serial.begin(115200);
     Serial.println(F("Serial started"));
+
+    Serial.println("Initializing SD card...");
+    // Configure the SPI pins
+    SPI.setMOSI(PA12);
+    SPI.setMISO(PA11);
+    SPI.setSCLK(PA5);
+    // Start the SPI interface
+
+    if (!SD.begin(SD_CS_PIN)) {
+        Serial.println("SD card initialization failed!");
+        while (1)
+        {
+            digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+            delay(100);
+        }
+        
+        return;
+    }
+
+    Serial.println("SD card initialization done.");
+
+    // turn off the LED
+    digitalWrite(LED_SD, HIGH);         //Indicated SD card it read
+    digitalWrite(LED_PIN, LOW);         // SD card not writing
+
+    
+
+    int8_t lib_ret;
+    zmod4xxx_err api_ret;
 
     /**
         Additional delay is required to wait till system is ready.
         It is used for MKRZERO platform.
     */
-    delay(2000);
+    //delay(2000);
 
     Serial.println(F("Starting the Sensor!"));
     /****TARGET SPECIFIC FUNCTION ****/
@@ -58,6 +110,8 @@ void setup()
 	* in "dependencies/zmod4xxx_api/HAL" directory). For more information, read
 	* the Datasheet, section "I2C Interface and Data Transmission Protocol".
     */
+    Wire.setSDA(PA10);
+    Wire.setSCL(PA9);
     api_ret = init_hardware(&dev);
     if (api_ret) {
         Serial.print(F("Error "));
@@ -218,11 +272,16 @@ void loop()
             Serial.print(F(" Rmox["));
             Serial.print(i);
             Serial.print(F("] = "));
-            Serial.print(algo_results.rmox[i] / 1e3);
+            data[i] = algo_results.rmox[i] / 1e3;
+            //Serial.print(algo_results.rmox[i] / 1e3);
+            Serial.print(data[i]);
             Serial.println(F(" kOhm"));
         }
         Serial.print(F(" Rel IAQ  = "));
-        Serial.println(algo_results.rel_iaq);
+        data[13] = algo_results.rel_iaq;
+        //Serial.println(algo_results.rel_iaq);
+        Serial.println(data[13]);
+        data[14] = lib_ret;
         switch (lib_ret) {
         case REL_IAQ_STABILIZATION:
             Serial.println(F("Warm-Up!"));
@@ -240,11 +299,80 @@ void loop()
 
     }
     
+    // check if the button is pressed
+    if (digitalRead(BUTTON_PIN) == LOW) {
+        // button is pressed, start or stop saving data
+        isSavingData = !isSavingData;
+        if (isSavingData) {
+        createNewDataFile();
+        Serial.println("Data save started.");
+        digitalWrite(LED_PIN, HIGH);
+        } else {
+        Serial.println("Data save stopped.");
+        digitalWrite(LED_PIN, LOW);
+        dataFile.close();
+        }
+        delay(500); // debounce delay
+    }
 
-
+    // check if it's time to save data
+    if (isSavingData && millis() - lastDataSaveTime >= DATA_SAVE_INTERVAL) {
+        lastDataSaveTime = millis();
+        // write the data to the file
+        if (dataRecordCount >= FILE_MAX_SIZE) {
+        // maximum file size reached, create a new file
+        createNewDataFile();
+        }
+        writeDataRecordToFile();
+    }
 }
 
 void error_handle()
 {
     while (1);
+}
+
+void createNewDataFile() {
+  // close the current file (if open)
+  if (!dataFile.isDirectory()) {
+    dataFile.close();
+  }
+  // create a new file with a unique name
+  // Find the next available file index
+  if (!fileIndex){
+      do {
+        sprintf(filename, "data_%03d.csv", fileIndex);
+        fileIndex++;
+    } while (SD.exists(filename));
+  }
+  else{
+    fileIndex++;
+    sprintf(filename, "data_%03d.csv", fileIndex);
+  }
+
+    // Open the file for writing
+    dataFile = SD.open(filename, FILE_WRITE);
+
+  if (!dataFile) {
+    Serial.println("Error creating data file!");
+  } else {
+    // write the CSV header
+    dataFile.println("Rmox[0],Rmox[1],Rmox[2],Rmox[3],Rmox[4],Rmox[5],Rmox[6],Rmox[7],Rmox[8],Rmox[9],Rmox[10],Rmox[11],Rmox[12],Rel_IAQ,Status");
+    dataRecordCount = 0;
+    Serial.print("New data file created: ");
+    Serial.println(filename);
+  }
+}
+
+void writeDataRecordToFile() {
+
+  // write the data to the file
+  for (int i = 0; i < DATA_REG_SIZE; i++) {
+    dataFile.print(data[i], 2);
+    if (i < DATA_REG_SIZE - 1) {
+      dataFile.print(",");
+    }
+  }
+  dataFile.println();
+  dataRecordCount++;
 }
