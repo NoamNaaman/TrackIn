@@ -29,13 +29,15 @@
 #define SD_CS_PIN PA8
 #define BUTTON_PIN PB5
 #define LED_PIN PA0
+#define LED_SD PA1
 #define DATA_SAVE_INTERVAL 10000 // in milliseconds
 #define FILE_MAX_SIZE 3600 // in number of data records
 #define DATA_REG_SIZE 3 // number of data registers
 float data[DATA_REG_SIZE];
 File dataFile;
-unsigned long lastDataSaveTime = 0;
+char filename[13];
 int fileIndex = 0;
+unsigned long lastDataSaveTime = 0;
 int dataRecordCount = 0;
 bool isSavingData = false;
 
@@ -79,28 +81,32 @@ void setup()
     pinMode(SD_CS_PIN, OUTPUT);
     pinMode(BUTTON_PIN, INPUT_PULLUP);
     pinMode(LED_PIN, OUTPUT);
+    pinMode(LED_SD, OUTPUT);
     Serial.begin(115200);
 
     Serial.println("Initializing SD card...");
     // Configure the SPI pins
     SPI.setMOSI(PA12);
-    SPI.setMISO(PA6);
+    SPI.setMISO(PA11);
     SPI.setSCLK(PA5);
     // Start the SPI interface
-    SPI.begin();
 
     if (!SD.begin(SD_CS_PIN)) {
         Serial.println("SD card initialization failed!");
+        while (1)
+        {
+            digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+            delay(100);
+        }
+        
         return;
     }
 
     Serial.println("SD card initialization done.");
 
-    // create a new data file
-    createNewDataFile();
-
     // turn off the LED
-    digitalWrite(LED_PIN, LOW);
+    digitalWrite(LED_SD, HIGH);         //Indicated SD card it read
+    digitalWrite(LED_PIN, LOW);         // SD card not writing
 
 
     int8_t lib_ret;
@@ -122,6 +128,8 @@ void setup()
     * in "dependencies/zmod4xxx_api/HAL" directory). For more information, read
     * the Datasheet, section "I2C Interface and Data Transmission Protocol".
     */
+    Wire.setSDA(PA10);
+    Wire.setSCL(PA9);
     api_ret = init_hardware(&dev);
     if (api_ret) {
         Serial.print(F("Error "));
@@ -291,6 +299,7 @@ void loop()
         // button is pressed, start or stop saving data
         isSavingData = !isSavingData;
         if (isSavingData) {
+        createNewDataFile();
         Serial.println("Data save started.");
         digitalWrite(LED_PIN, HIGH);
         } else {
@@ -325,10 +334,32 @@ void createNewDataFile() {
     dataFile.close();
   }
   // create a new file with a unique name
-  char filename[13];
-  sprintf(filename, "data_%03d.csv", fileIndex);
-  fileIndex++;
-  dataFile = SD.open(filename, FILE_WRITE);
+  // Find the next available file index
+  if (!fileIndex){
+      do {
+        sprintf(filename, "data_%03d.csv", fileIndex);
+        fileIndex++;
+    } while (SD.exists(filename));
+  }
+  else{
+    fileIndex++;
+    sprintf(filename, "data_%03d.csv", fileIndex);
+  }
+
+// Open the file for writing
+File dataFile = SD.open(filename, FILE_WRITE);
+
+if (dataFile) {
+    // Write the data to the file
+    dataFile.print("Data goes here.");
+
+    // Check if it's time to start a new file
+    if (fileIndex % 3600 == 0) {
+        // Open the next file
+        sprintf(filename, "data_%03d.csv", fileIndex);
+        dataFile = SD.open(filename, FILE_WRITE);
+    }
+}
   if (!dataFile) {
     Serial.println("Error creating data file!");
   } else {
